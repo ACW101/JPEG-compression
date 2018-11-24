@@ -47,11 +47,7 @@ def quantize(m, N):
     if N == 16:
         for i in range(N):
             for j in range(N):
-                m[2 * i][2 * j] = np.rint(m[2 * i][2 * j] / LQM[i][j])
-                m[2 * i + 1][2 * j] = np.rint(m[2 * i + 1][2 * j] / LQM[i][j])
-                m[2 * i][2 * j + 1] = np.rint(m[2 * i][2 * j + 1] / LQM[i][j])
-                m[2 * i + 1][2 * j +
-                             1] = np.rint(m[2 * i + 1][2 * j + 1] / LQM[i][j])
+                m[i][j] = np.rint(m[i][j] / LQM[i/2][j/2])
 
 
 def toZigZag(m, N):

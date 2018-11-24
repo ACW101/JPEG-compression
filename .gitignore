@@ -1,0 +1,6 @@
+*.jpg
+*.png
+*.gz
+*.bmp
+.vscode
+.ipynb_checkpoints

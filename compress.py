@@ -35,19 +35,21 @@ def DCT(m, N):
                 for y in range(N):
                     temp += cosines[x][i] * cosines[y][j] * m[x][y]
             temp *= 1 / sqrt(2 * N) * coefficients[i][j]
-            dct[i][j] = np.rint(temp)
-    return dct.astype(int)
+            dct[i][j] = temp
+    return dct
 
 
 def quantize(m, N):
+    quantized = np.zeros((8, 8), dtype=np.int16)
     if N == 8:
         for i in range(N):
             for j in range(N):
-                m[i][j] = np.rint(m[i][j] / LQM[i][j])
+                quantized[i][j] = np.rint(m[i][j] / LQM[i][j])
     if N == 16:
         for i in range(N):
             for j in range(N):
-                m[i][j] = np.rint(m[i][j] / LQM[i/2][j/2])
+                quantized[i][j] = np.rint(m[i][j] / LQM[i/2][j/2])
+    return quantized
 
 
 def toZigZag(m, N):
@@ -64,30 +66,39 @@ def toZigZag(m, N):
     return res
 
 
+# def encode(arr):
+#     dc = arr[0]
+#     run = 0
+#     for i in range(1, len(arr)):
+#         cur = arr[i]
+#         if cur == 0:
+
 def jpg(m, N):
     centered = m - 128
-    dct = DCT(m, N)
-    quantize(m, N)
-    zigzag = toZigZag(dct, N)
+    dct = DCT(centered, N)
+    quantized = quantize(dct, N)
+    zigzag = toZigZag(quantized, N)
     return ",".join(str(e) for e in zigzag)
 
 
 def write_compressed(data):
-    from subprocess import Popen, PIPE
-    output_file_name = 'pipe_out_test.txt.gz'
+    output_file_name = 'test_raw.txt'
+    with open(output_file_name, "w") as f:
+        for line in data:
+            f.write(line + "\n")
 
-    gzip_output_file = open(output_file_name, 'wb', 0)
+    # from subprocess import Popen, PIPE
+    # gzip_output_file = open(output_file_name, 'wb', 0)
 
     # If gzip is supported
-    output_stream = Popen(["gzip"], stdin=PIPE, stdout=gzip_output_file)
+    # output_stream = Popen(["compress"], stdin=PIPE, stdout=gzip_output_file)
 
-    for line in data:
-        output_stream.stdin.write(str.encode(line + '\n'))
+    # for line in data:
+    #     output_stream.stdin.write(str.encode(line + '\n'))
 
-    output_stream.stdin.close()
-    output_stream.wait()
-
-    gzip_output_file.close()
+    # output_stream.stdin.close()
+    # output_stream.wait()
+    # gzip_output_file.close()
 
 
 f = "Kodak08gray.bmp"
@@ -107,5 +118,4 @@ for i in range(0, h, N):
     for j in range(0, w, N):
         sub = m[i:i+N, j:j+N]
         res.append(jpg(sub, N))
-
 write_compressed(res)

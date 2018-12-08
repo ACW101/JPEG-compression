@@ -1,6 +1,7 @@
 from PIL import Image
 import numpy as np
 from math import cos, sqrt, pi, radians, ceil
+from bitarray import bitarray
 
 LQM = np.asarray([
     [16, 11, 10, 16, 24, 40, 51, 61],
@@ -66,19 +67,86 @@ def toZigZag(m, N):
     return res
 
 
-# def encode(arr):
-#     dc = arr[0]
-#     run = 0
-#     for i in range(1, len(arr)):
-#         cur = arr[i]
-#         if cur == 0:
+huffman_table = {0: "0000", 1: "0001", 2: "0010", 3: "0011", 4: "0100", 5: "0101", 6: "0110", 7: "0111",
+                 8: "1000", 9: "1001", 10: "1010", 11: "1011", 12: "1100", 13: "1101", 14: "1110", 15: "1111"}
+rev_huffman_table = {value: key for (key, value) in huffman_table.items()}
+
+
+def get_bit_len(num):
+    powers_of_two = 2
+    bit_count = 1
+    while abs(num) >= powers_of_two:
+        powers_of_two *= 2
+        bit_count += 1
+    return bit_count
+
+
+def to_twos_complement(num, bit_len):
+    if bit_len == 0:
+        return "0"
+    bit_format = "0%ib" % bit_len
+    adjusted = num - pow(2, bit_len - 1) if num > 0 else num + \
+        pow(2, bit_len - 1) - 1
+    return format(adjusted, bit_format) if adjusted >= 0 else format((1 << bit_len) + adjusted, bit_format)
+
+
+def DC_to_binary(DC):
+    dc_bits = bitarray(endian="little")
+    for dc in DC:
+        bit_len = get_bit_len(dc)
+        len_binary = huffman_table[bit_len]
+        amplitude_binary = to_twos_complement(dc, bit_len)
+        dc_bits += bitarray(len_binary + amplitude_binary, endian="little")
+    return dc_bits
+
+
+def AC_to_binary(AC):
+    ac_bits = bitarray(endian="little")
+    for ac in AC:
+        run_len = to_run_len(ac)
+        for rl in run_len:
+            zeros_binary = huffman_table[rl[0]]
+            bit_len = get_bit_len(rl[1])
+            len_binary = huffman_table[bit_len]
+            amplitude_binary = to_twos_complement(rl[1], bit_len)
+            ac_bits += bitarray(zeros_binary + len_binary +
+                                amplitude_binary, endian="little")
+        ac_bits += bitarray("00000000", endian="little")
+    return ac_bits
+
+
+def to_run_len(ac):
+    run_len = []
+    zeros = 0
+    i = 0
+    while i < len(ac):
+        if ac[i] == 0:
+            zeros += 1
+            if zeros == 16:
+                run_len.append((15, 0))
+                zeros = 0
+        else:
+            run_len.append((zeros, ac[i]))
+            zeros = 0
+        i += 1
+    return run_len
+
+
+def encode(zigzags):
+    DC = [zigzags[i][0] for i in range(len(zigzags))]
+    DC_bits = DC_to_binary(DC)
+    AC = [zigzags[i][1:] for i in range(len(zigzags))]
+    AC_bits = AC_to_binary(AC)
+    with open("AC_bytes.bin", "wb") as f:
+        # f.write(DC_bits.tobytes())
+        f.write(AC_bits.tobytes())
+
 
 def jpg(m, N):
     centered = m - 128
     dct = DCT(centered, N)
     quantized = quantize(dct, N)
-    zigzag = toZigZag(quantized, N)
-    return ",".join(str(e) for e in zigzag)
+    return toZigZag(quantized, N)
 
 
 def write_compressed(data):
@@ -101,7 +169,7 @@ def write_compressed(data):
     # gzip_output_file.close()
 
 
-f = "Kodak08gray.bmp"
+f = "Test.jpg"
 img = Image.open(f)
 img = img.convert("L")
 m = np.asarray(img, dtype=np.int16)
@@ -114,8 +182,71 @@ padding[:m.shape[0], :m.shape[1]] = m
 m = padding
 
 res = []
-for i in range(0, h, N):
-    for j in range(0, w, N):
-        sub = m[i:i+N, j:j+N]
-        res.append(jpg(sub, N))
-write_compressed(res)
+# for i in range(0, h, N):
+#     for j in range(0, w, N):
+#         sub = m[i:i+N, j:j+N]
+#         res.append(jpg(sub, N))
+acs = np.arange(3).tolist()
+
+res = [[i] + acs for i in range(2)]
+encode(res)
+# write_compressed(res)
+
+
+def from_twos_complement(b, bit_len):
+    if (b & (1 << (bit_len - 1))) != 0:
+        return b - (1 << bit_len)
+    return b
+
+
+def binary_to_num(binary, bit_len):
+    adjusted = from_twos_complement(int(binary.to01(), 2), bit_len)
+    unadjusted = adjusted + pow(2, bit_len - 1) \
+        if adjusted >= 0 \
+        else adjusted - pow(2, bit_len - 1) + 1
+    return unadjusted
+
+
+def from_binary_to_DC(bits):
+    offset = 0
+    cur_bits = bits[offset: offset + 4].to01()
+    while cur_bits != "0000":
+        bit_len = rev_huffman_table[cur_bits]
+        amp_binary = bits[offset + 4: offset + 4 + bit_len]
+        dc = binary_to_num(bitarray(amp_binary, endian="little"), bit_len)
+        offset += (4 + bit_len)
+        cur_bits = bits[offset: offset + 4].to01()
+    return offset + 4
+
+
+def from_binary_to_AC(bits):
+    AC = []
+    offset = 0
+    zeros_bits = bits[offset: offset + 4].to01()
+    bit_len_bits = bits[offset + 4: offset + 8].to01()
+    while len(zeros_bits) == 4 and len(bit_len_bits) == 4:
+        ac_rl = []
+        while zeros_bits != "0000" or bit_len_bits != "0000":
+            prec_zeros = rev_huffman_table[zeros_bits]
+            bit_len = rev_huffman_table[bit_len_bits]
+            amp_bits = bits[offset + 8: offset + 8 + bit_len]
+            ac = binary_to_num(bitarray(amp_bits, endian="little"), bit_len)
+            ac_rl.append((prec_zeros, ac))
+            print(ac_rl)
+            offset += (8 + bit_len)
+            zeros_bits = bits[offset: offset + 4].to01()
+            bit_len_bits = bits[offset + 4: offset + 8].to01()
+        offset += 8
+        zeros_bits = bits[offset: offset + 4].to01()
+        bit_len_bits = bits[offset + 4: offset + 8].to01()
+
+
+def decode(file):
+    b = bitarray(endian="little")
+    with open("AC_bytes.bin", "rb") as f:
+        b.fromfile(f)
+    # from_binary_to_DC(b)
+    from_binary_to_AC(b)
+
+
+decode("abc")

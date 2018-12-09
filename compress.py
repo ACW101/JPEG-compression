@@ -73,6 +73,8 @@ rev_huffman_table = {value: key for (key, value) in huffman_table.items()}
 
 
 def get_bit_len(num):
+    if num == 0:
+        return 0
     powers_of_two = 2
     bit_count = 1
     while abs(num) >= powers_of_two:
@@ -83,7 +85,7 @@ def get_bit_len(num):
 
 def to_twos_complement(num, bit_len):
     if bit_len == 0:
-        return "0"
+        return ""
     bit_format = "0%ib" % bit_len
     adjusted = num - pow(2, bit_len - 1) if num > 0 else num + \
         pow(2, bit_len - 1) - 1
@@ -97,6 +99,7 @@ def DC_to_binary(DC):
         len_binary = huffman_table[bit_len]
         amplitude_binary = to_twos_complement(dc, bit_len)
         dc_bits += bitarray(len_binary + amplitude_binary, endian="little")
+    dc_bits += bitarray("0000", endian="little")
     return dc_bits
 
 
@@ -137,9 +140,10 @@ def encode(zigzags):
     DC_bits = DC_to_binary(DC)
     AC = [zigzags[i][1:] for i in range(len(zigzags))]
     AC_bits = AC_to_binary(AC)
-    with open("AC_bytes.bin", "wb") as f:
-        # f.write(DC_bits.tobytes())
-        f.write(AC_bits.tobytes())
+    print("DC", DC_bits)
+    print("AC", AC_bits)
+    with open("all_bytes.bin", "wb") as f:
+        f.write((DC_bits + AC_bits).tobytes())
 
 
 def jpg(m, N):
@@ -186,9 +190,9 @@ res = []
 #     for j in range(0, w, N):
 #         sub = m[i:i+N, j:j+N]
 #         res.append(jpg(sub, N))
-acs = np.arange(3).tolist()
+acs = np.arange(63).tolist()
 
-res = [[i] + acs for i in range(2)]
+res = [[i] + acs for i in range(6)]
 encode(res)
 # write_compressed(res)
 
@@ -207,46 +211,66 @@ def binary_to_num(binary, bit_len):
     return unadjusted
 
 
-def from_binary_to_DC(bits):
-    offset = 0
+def from_binary_to_DC(bits, offset, zigzags):
     cur_bits = bits[offset: offset + 4].to01()
-    while cur_bits != "0000":
+    i = 0
+    while i < zigzags.shape[0]:
         bit_len = rev_huffman_table[cur_bits]
-        amp_binary = bits[offset + 4: offset + 4 + bit_len]
-        dc = binary_to_num(bitarray(amp_binary, endian="little"), bit_len)
+        if bit_len > 0:
+            amp_binary = bits[offset + 4: offset + 4 + bit_len]
+            dc = binary_to_num(bitarray(amp_binary, endian="little"), bit_len)
+            zigzags[i][0] = dc
         offset += (4 + bit_len)
         cur_bits = bits[offset: offset + 4].to01()
+        i += 1
     return offset + 4
 
 
-def from_binary_to_AC(bits):
-    AC = []
-    offset = 0
+def rev_run_length(rl, N):
+    res = []
+    for (zeros, val) in rl:
+        if zeros == 15 and val == 0:
+            res.extend([0] * 16)
+        elif zeros == 0 and val == 0:
+            res.extend([0] * (N * N - len(res)))
+        else:
+            res.extend([0] * zeros)
+            res.append(val)
+    print(res)
+
+
+def from_binary_to_AC(bits, N, offset, zigzags):
+    i = 0
     zeros_bits = bits[offset: offset + 4].to01()
     bit_len_bits = bits[offset + 4: offset + 8].to01()
-    while len(zeros_bits) == 4 and len(bit_len_bits) == 4:
-        ac_rl = []
+    while i < zigzags.shape[0]:
+        j = 1
         while zeros_bits != "0000" or bit_len_bits != "0000":
             prec_zeros = rev_huffman_table[zeros_bits]
             bit_len = rev_huffman_table[bit_len_bits]
             amp_bits = bits[offset + 8: offset + 8 + bit_len]
             ac = binary_to_num(bitarray(amp_bits, endian="little"), bit_len)
-            ac_rl.append((prec_zeros, ac))
-            print(ac_rl)
+            zigzags[i][j] = ac
             offset += (8 + bit_len)
             zeros_bits = bits[offset: offset + 4].to01()
             bit_len_bits = bits[offset + 4: offset + 8].to01()
+            j += 1
         offset += 8
         zeros_bits = bits[offset: offset + 4].to01()
         bit_len_bits = bits[offset + 4: offset + 8].to01()
+        i += 1
+    print(zigzags)
 
 
-def decode(file):
+def decode(file, N):
     b = bitarray(endian="little")
-    with open("AC_bytes.bin", "rb") as f:
+    h, w = 2, 3
+    zigzags = np.zeros((h * w, N * N), dtype=np.float32)
+    offset = 0
+    with open("all_bytes.bin", "rb") as f:
         b.fromfile(f)
-    # from_binary_to_DC(b)
-    from_binary_to_AC(b)
+    offset = from_binary_to_DC(b, offset, zigzags)
+    from_binary_to_AC(b, 8, offset, zigzags)
 
 
-decode("abc")
+decode("abc", 8)

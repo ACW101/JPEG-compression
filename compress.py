@@ -152,8 +152,6 @@ def encode(zigzags):
     DC_bits = DC_to_binary(DC)
     AC = [zigzags[i][1:] for i in range(len(zigzags))]
     AC_bits = AC_to_binary(AC)
-    print("DC", DC_bits)
-    print("AC", AC_bits)
     with open("all_bytes.bin", "wb") as f:
         f.write((DC_bits + AC_bits).tobytes())
 
@@ -167,9 +165,9 @@ def jpg(m, N):
 
 def write_compressed(data):
     output_file_name = 'test_raw.txt'
-    with open(output_file_name, "w") as f:
+    with open(output_file_name, "wb") as f:
         for line in data:
-            f.write(line + "\n")
+            f.write(line)
 
     # from subprocess import Popen, PIPE
     # gzip_output_file = open(output_file_name, 'wb', 0)
@@ -206,8 +204,9 @@ res = []
 # delete below test codes
 acs = np.arange(63).tolist()
 res = [[i] + acs for i in range(6)]
+print("res")
+print(res)
 encode(res)
-write_compressed(res)
 
 
 def from_twos_complement(b, bit_len):
@@ -249,7 +248,6 @@ def rev_run_length(rl, N):
         else:
             res.extend([0] * zeros)
             res.append(val)
-    print(res)
 
 
 def from_binary_to_AC(bits, N, offset, zigzags):
@@ -259,7 +257,14 @@ def from_binary_to_AC(bits, N, offset, zigzags):
     while i < zigzags.shape[0]:
         j = 1
         while zeros_bits != "0000" or bit_len_bits != "0000":
+            # handle preceding zeros
             prec_zeros = rev_huffman_table[zeros_bits]
+            while prec_zeros > 0:
+                zigzags[i][j] = 0
+                j += 1
+                prec_zeros -= 1
+
+            # handle non-zero ac value
             bit_len = rev_huffman_table[bit_len_bits]
             amp_bits = bits[offset + 8: offset + 8 + bit_len]
             ac = binary_to_num(bitarray(amp_bits, endian="little"), bit_len)
@@ -272,7 +277,6 @@ def from_binary_to_AC(bits, N, offset, zigzags):
         zeros_bits = bits[offset: offset + 4].to01()
         bit_len_bits = bits[offset + 4: offset + 8].to01()
         i += 1
-    print(zigzags)
 
 
 def decode(file, N):

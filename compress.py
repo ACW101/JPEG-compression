@@ -40,6 +40,18 @@ def DCT(m, N):
     return dct
 
 
+def DCT_Matrix(m, N):
+   # pre-calculate cosine terms
+    C = np.ones((8, 8), dtype=np.float32)
+    for j in range(N):
+        C[0][j] = 1 / sqrt(N)
+    for i in range(1, N):
+        for j in range(N):
+            C[i][j] = sqrt(2 / N) * cos((2 * j + 1) * i * pi / (2 * N))
+    DCT = np.matmul(np.matmul(C, m), np.transpose(C))
+    return DCT
+
+
 def quantize(m, N):
     quantized = np.zeros((8, 8), dtype=np.int16)
     if N == 8:
@@ -148,7 +160,7 @@ def encode(zigzags):
 
 def jpg(m, N):
     centered = m - 128
-    dct = DCT(centered, N)
+    dct = DCT_Matrix(centered, N)
     quantized = quantize(dct, N)
     return toZigZag(quantized, N)
 
@@ -173,7 +185,7 @@ def write_compressed(data):
     # gzip_output_file.close()
 
 
-f = "Test.jpg"
+f = "Kodak08gray.bmp"
 img = Image.open(f)
 img = img.convert("L")
 m = np.asarray(img, dtype=np.int16)
@@ -190,11 +202,12 @@ res = []
 #     for j in range(0, w, N):
 #         sub = m[i:i+N, j:j+N]
 #         res.append(jpg(sub, N))
-acs = np.arange(63).tolist()
 
+# delete below test codes
+acs = np.arange(63).tolist()
 res = [[i] + acs for i in range(6)]
 encode(res)
-# write_compressed(res)
+write_compressed(res)
 
 
 def from_twos_complement(b, bit_len):

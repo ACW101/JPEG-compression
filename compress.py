@@ -2,6 +2,7 @@ from PIL import Image
 import numpy as np
 from math import cos, sqrt, pi, radians, ceil
 from bitarray import bitarray
+from struct import *
 
 LQM = np.asarray([
     [16, 11, 10, 16, 24, 40, 51, 61],
@@ -152,8 +153,7 @@ def encode(zigzags):
     DC_bits = DC_to_binary(DC)
     AC = [zigzags[i][1:] for i in range(len(zigzags))]
     AC_bits = AC_to_binary(AC)
-    with open("all_bytes.bin", "wb") as f:
-        f.write((DC_bits + AC_bits).tobytes())
+    return DC_bits + AC_bits
 
 
 def jpg(m, N):
@@ -161,13 +161,6 @@ def jpg(m, N):
     dct = DCT_Matrix(centered, N)
     quantized = quantize(dct, N)
     return toZigZag(quantized, N)
-
-
-def write_compressed(data):
-    output_file_name = 'test_raw.txt'
-    with open(output_file_name, "wb") as f:
-        for line in data:
-            f.write(line)
 
     # from subprocess import Popen, PIPE
     # gzip_output_file = open(output_file_name, 'wb', 0)
@@ -183,30 +176,36 @@ def write_compressed(data):
     # gzip_output_file.close()
 
 
-f = "Kodak08gray.bmp"
-img = Image.open(f)
-img = img.convert("L")
-m = np.asarray(img, dtype=np.int16)
-N = 8
+def compress(file_name, N):
+    img = Image.open(file_name)
+    img = img.convert("L")
+    m = np.asarray(img, dtype=np.int16)
+    (h, w) = N * ceil(m.shape[0] / N), N * ceil(m.shape[1] / N)
 
-(h, w) = N * ceil(m.shape[0] / N), N * ceil(m.shape[1] / N)
+    padding = np.zeros((h, w))
+    padding[:m.shape[0], :m.shape[1]] = m
+    m = padding
 
-padding = np.zeros((h, w))
-padding[:m.shape[0], :m.shape[1]] = m
-m = padding
+    res = []
+    for i in range(0, h, N):
+        for j in range(0, w, N):
+            sub = m[i:i+N, j:j+N]
+            res.append(jpg(sub, N))
+    print(len(res))
+    bits = encode(res)
+    output_file_name = "output.bin"
+    with open(output_file_name, "wb") as f:
+        dimension_bytes = pack("II", h, w)
+        f.write(dimension_bytes)
+        f.write(bits.tobytes())
 
-res = []
-# for i in range(0, h, N):
-#     for j in range(0, w, N):
-#         sub = m[i:i+N, j:j+N]
-#         res.append(jpg(sub, N))
 
+# compress("Kodak08gray.bmp", 8)
 # delete below test codes
-acs = np.arange(63).tolist()
-res = [[i] + acs for i in range(6)]
-print("res")
-print(res)
-encode(res)
+# acs = np.arange(63).tolist()
+# res = [[i] + acs for i in range(6)]
+# print("res")
+# print(res)
 
 
 def from_twos_complement(b, bit_len):
@@ -223,10 +222,10 @@ def binary_to_num(binary, bit_len):
     return unadjusted
 
 
-def from_binary_to_DC(bits, offset, zigzags):
+def from_binary_to_DC(bits, offset, zigzags, blocks):
     cur_bits = bits[offset: offset + 4].to01()
     i = 0
-    while i < zigzags.shape[0]:
+    while i < blocks:
         bit_len = rev_huffman_table[cur_bits]
         if bit_len > 0:
             amp_binary = bits[offset + 4: offset + 4 + bit_len]
@@ -250,13 +249,19 @@ def rev_run_length(rl, N):
             res.append(val)
 
 
-def from_binary_to_AC(bits, N, offset, zigzags):
+def from_binary_to_AC(bits, N, offset, zigzags, blocks):
     i = 0
     zeros_bits = bits[offset: offset + 4].to01()
     bit_len_bits = bits[offset + 4: offset + 8].to01()
-    while i < zigzags.shape[0]:
+    while i < blocks:
         j = 1
         while zeros_bits != "0000" or bit_len_bits != "0000":
+            if zeros_bits == "1111" and bit_len_bits == "0000":
+                j += 16
+                offset += 8
+                zeros_bits = bits[offset: offset + 4].to01()
+                bit_len_bits = bits[offset + 4: offset + 8].to01()
+                continue
             # handle preceding zeros
             prec_zeros = rev_huffman_table[zeros_bits]
             while prec_zeros > 0:
@@ -281,13 +286,18 @@ def from_binary_to_AC(bits, N, offset, zigzags):
 
 def decode(file, N):
     b = bitarray(endian="little")
-    h, w = 2, 3
+    with open("output.bin", "rb") as f:
+        dimension = unpack("II", f.read(8))
+        b.frombytes(f.read())
+    (h, w) = dimension
+    print(h, w)
     zigzags = np.zeros((h * w, N * N), dtype=np.float32)
     offset = 0
-    with open("all_bytes.bin", "rb") as f:
-        b.fromfile(f)
-    offset = from_binary_to_DC(b, offset, zigzags)
-    from_binary_to_AC(b, 8, offset, zigzags)
+    blocks = h * w / N / N
+    offset = from_binary_to_DC(b, offset, zigzags, blocks)
+    print("finished DC")
+    from_binary_to_AC(b, 8, offset, zigzags, blocks)
+    print("finished AC")
 
 
 decode("abc", 8)

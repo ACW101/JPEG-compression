@@ -2,7 +2,8 @@ from PIL import Image
 import numpy as np
 from math import cos, sqrt, pi, radians, ceil
 from bitarray import bitarray
-from struct import *
+from struct import pack, unpack
+import sys
 
 LQM = np.asarray([
     [16, 11, 10, 16, 24, 40, 51, 61],
@@ -176,8 +177,8 @@ def jpg(m, N):
     # gzip_output_file.close()
 
 
-def compress(file_name, N):
-    img = Image.open(file_name)
+def compress(f, N=8, to_stdout=False, output_file_name="output.bin"):
+    img = Image.open(f)
     img = img.convert("L")
     m = np.asarray(img, dtype=np.int16)
     (h, w) = N * ceil(m.shape[0] / N), N * ceil(m.shape[1] / N)
@@ -191,21 +192,19 @@ def compress(file_name, N):
         for j in range(0, w, N):
             sub = m[i:i+N, j:j+N]
             res.append(jpg(sub, N))
-    print(len(res))
+    dimension_bytes = pack("II", h, w)
     bits = encode(res)
-    output_file_name = "output.bin"
-    with open(output_file_name, "wb") as f:
-        dimension_bytes = pack("II", h, w)
-        f.write(dimension_bytes)
-        f.write(bits.tobytes())
+    if to_stdout:
+        sys.stdout.buffer.write(dimension_bytes)
+        sys.stdout.buffer.write(bits.tobytes())
+    else:
+        with open(output_file_name, "wb") as f:
+            f.write(dimension_bytes)
+            f.write(bits.tobytes())
 
 
-# compress("Kodak08gray.bmp", 8)
-# delete below test codes
-# acs = np.arange(63).tolist()
-# res = [[i] + acs for i in range(6)]
-# print("res")
-# print(res)
+if __name__ == "__main__":
+    compress(sys.stdin.buffer, 8, to_stdout=True)
 
 
 def from_twos_complement(b, bit_len):
@@ -300,4 +299,4 @@ def decode(file, N):
     print("finished AC")
 
 
-decode("abc", 8)
+# decode("abc", 8)
